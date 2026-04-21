@@ -21,5 +21,8 @@ dependencies = [
     "pillow"
 ]
 
+[tool.setuptools]
+packages = ["core", "db", "scanners", "parsers", "output", "utils", "config", "correlator"]
+
 [project.scripts]
 vaptor = "vaptor:main"
