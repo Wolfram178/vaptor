@@ -25,4 +25,4 @@ dependencies = [
 packages = ["core", "db", "scanners", "parsers", "output", "utils", "config", "correlator"]
 
 [project.scripts]
-vaptor = "vaptor:main"
+vaptor = "vaptor.main:main"
