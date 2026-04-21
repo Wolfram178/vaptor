@@ -15,6 +15,6 @@ Vaptor is an automated VAPT pipeline tool that integrates Nmap, testssl, and Nes
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/vaptor
+git clone https://github.com/Wolfram178/vaptor.git
 cd vaptor
 pip install -e .
