@@ -1,0 +1,6 @@
+requests
+pandas
+openpyxl
+colorama
+cryptography
+pillow

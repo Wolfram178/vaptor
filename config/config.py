@@ -1,24 +1,79 @@
 import json
 import os
+from cryptography.fernet import Fernet
 
 CONFIG_FILE = "config/nessus_config.json"
+KEY_FILE = "config/key.key"
 
 
+# ----------------------------
+# Key Management
+# ----------------------------
+def generate_key():
+    key = Fernet.generate_key()
+    os.makedirs("config", exist_ok=True)
+
+    with open(KEY_FILE, "wb") as f:
+        f.write(key)
+
+    return key
+
+
+def load_key():
+    if not os.path.exists(KEY_FILE):
+        return generate_key()
+
+    with open(KEY_FILE, "rb") as f:
+        return f.read()
+
+
+def get_cipher():
+    key = load_key()
+    return Fernet(key)
+
+
+# ----------------------------
+# Load Config (Decrypt)
+# ----------------------------
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         return None
 
+    cipher = get_cipher()
+
     with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+        data = json.load(f)
+
+    try:
+        data["access_key"] = cipher.decrypt(data["access_key"].encode()).decode()
+        data["secret_key"] = cipher.decrypt(data["secret_key"].encode()).decode()
+    except Exception:
+        print("[ERROR] Failed to decrypt Nessus keys")
+        return None
+
+    return data
 
 
+# ----------------------------
+# Save Config (Encrypt)
+# ----------------------------
 def save_config(config):
+    cipher = get_cipher()
+
+    encrypted_config = config.copy()
+
+    encrypted_config["access_key"] = cipher.encrypt(config["access_key"].encode()).decode()
+    encrypted_config["secret_key"] = cipher.encrypt(config["secret_key"].encode()).decode()
+
     os.makedirs("config", exist_ok=True)
 
     with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=4)
+        json.dump(encrypted_config, f, indent=4)
 
 
+# ----------------------------
+# Setup Config (First Run)
+# ----------------------------
 def setup_config():
     print("\n[+] Nessus Configuration Setup")
 
@@ -35,4 +90,7 @@ def setup_config():
     }
 
     save_config(config)
+
+    print("[✓] Config saved securely (encrypted)")
+
     return config

@@ -5,9 +5,21 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vaptor"
 version = "0.1.0"
-description = "CLI-based VAPT automation tool"
-authors = [{name = "Wolfram"}]
-dependencies = []
+description = "CLI-based automated VAPT pipeline with Nmap, testssl, Nessus, correlation and reporting"
+authors = [
+    {name = "Wolfram178"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "requests",
+    "pandas",
+    "openpyxl",
+    "colorama",
+    "cryptography",
+    "pillow"
+]
 
 [project.scripts]
 vaptor = "vaptor:main"
