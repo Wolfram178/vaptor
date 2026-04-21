@@ -1,0 +1,13 @@
+```bash id="git1"
+__pycache__/
+*.pyc
+*.pyo
+
+config/key.key
+config/nessus_config.json
+
+runs/
+*.xlsx
+*.json
+
+.env

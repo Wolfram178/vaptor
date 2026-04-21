@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vaptor"
+version = "0.1.0"
+description = "CLI-based VAPT automation tool"
+authors = [{name = "Wolfram"}]
+dependencies = []
+
+[project.scripts]
+vaptor = "vaptor:main"
