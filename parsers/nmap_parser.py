@@ -9,13 +9,18 @@ def parse_nmap(xml_file, target, scan_id):
 
     for host in root.findall("host"):
         for port in host.findall(".//port"):
-            state = port.find("state").get("state")
+            state_node = port.find("state")
+            state = state_node.get("state") if state_node is not None else ""
 
             if state == "open":
                 port_id = port.get("portid")
-                service = port.find("service").get("name")
+                service_node = port.find("service")
+                service = service_node.get("name") if service_node is not None else "unknown"
 
-                open_ports.append(int(port_id))
+                try:
+                    open_ports.append(int(port_id))
+                except (TypeError, ValueError):
+                    continue
 
                 findings.append({
                     "target": target,

@@ -1,14 +1,35 @@
 import sqlite3
+import time
 from datetime import datetime
 
 DB_NAME = "vaptor.db"
+ALLOWED_STAGES = {"nmap", "ssl", "nessus"}
 
 
 # ----------------------------
 # Connection
 # ----------------------------
 def get_connection():
-    return sqlite3.connect(DB_NAME, check_same_thread=False)
+    conn = sqlite3.connect(DB_NAME, timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def _execute_with_retry(fn, attempts=5, delay=0.2):
+    last_error = None
+
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            last_error = exc
+            if "locked" not in str(exc).lower() or attempt == attempts - 1:
+                raise
+            time.sleep(delay * (attempt + 1))
+
+    raise last_error
 
 # ----------------------------
 # Initialize Database
@@ -74,76 +95,79 @@ def init_db():
 # Scan Management
 # ----------------------------
 def create_scan():
-    conn = get_connection()
-    cursor = conn.cursor()
+    def _create():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            start_time = datetime.now().isoformat()
+            cursor.execute("""
+                INSERT INTO scans (start_time, status)
+                VALUES (?, ?)
+            """, (start_time, "running"))
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
 
-    start_time = datetime.now().isoformat()
-
-    cursor.execute("""
-        INSERT INTO scans (start_time, status)
-        VALUES (?, ?)
-    """, (start_time, "running"))
-
-    scan_id = cursor.lastrowid
-
-    conn.commit()
-    conn.close()
-
-    return scan_id
+    return _execute_with_retry(_create)
 
 
 def complete_scan(scan_id):
-    conn = get_connection()
-    cursor = conn.cursor()
+    def _complete():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            end_time = datetime.now().isoformat()
+            cursor.execute("""
+                UPDATE scans
+                SET end_time = ?, status = ?
+                WHERE id = ?
+            """, (end_time, "completed", scan_id))
+            conn.commit()
+        finally:
+            conn.close()
 
-    end_time = datetime.now().isoformat()
-
-    cursor.execute("""
-        UPDATE scans
-        SET end_time = ?, status = ?
-        WHERE id = ?
-    """, (end_time, "completed", scan_id))
-
-    conn.commit()
-    conn.close()
+    _execute_with_retry(_complete)
 
 
 # ----------------------------
 # Target Management
 # ----------------------------
 def add_target(scan_id, target):
-    conn = get_connection()
-    cursor = conn.cursor()
+    def _add():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO targets (scan_id, target)
+                VALUES (?, ?)
+            """, (scan_id, target))
+            target_id = cursor.lastrowid
 
-    cursor.execute("""
-        INSERT INTO targets (scan_id, target)
-        VALUES (?, ?)
-    """, (scan_id, target))
+            # Initialize scan state
+            cursor.execute("""
+                INSERT INTO scan_state (
+                    target_id,
+                    nmap_status,
+                    ssl_status,
+                    nessus_status,
+                    last_updated
+                )
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                target_id,
+                "pending",
+                "pending",
+                "pending",
+                datetime.now().isoformat()
+            ))
 
-    target_id = cursor.lastrowid
+            conn.commit()
+            return target_id
+        finally:
+            conn.close()
 
-    # Initialize scan state
-    cursor.execute("""
-        INSERT INTO scan_state (
-            target_id,
-            nmap_status,
-            ssl_status,
-            nessus_status,
-            last_updated
-        )
-        VALUES (?, ?, ?, ?, ?)
-    """, (
-        target_id,
-        "pending",
-        "pending",
-        "pending",
-        datetime.now().isoformat()
-    ))
-
-    conn.commit()
-    conn.close()
-
-    return target_id
+    return _execute_with_retry(_add)
 
 
 def get_targets(scan_id):
@@ -165,25 +189,29 @@ def get_targets(scan_id):
 # State Management
 # ----------------------------
 def update_state(target_id, stage, status):
-    conn = get_connection()
-    cursor = conn.cursor()
+    if stage not in ALLOWED_STAGES:
+        raise ValueError(f"Unsupported stage: {stage}")
 
-    column = f"{stage}_status"
+    def _update():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            column = f"{stage}_status"
+            query = f"""
+                UPDATE scan_state
+                SET {column} = ?, last_updated = ?
+                WHERE target_id = ?
+            """
+            cursor.execute(query, (
+                status,
+                datetime.now().isoformat(),
+                target_id
+            ))
+            conn.commit()
+        finally:
+            conn.close()
 
-    query = f"""
-        UPDATE scan_state
-        SET {column} = ?, last_updated = ?
-        WHERE target_id = ?
-    """
-
-    cursor.execute(query, (
-        status,
-        datetime.now().isoformat(),
-        target_id
-    ))
-
-    conn.commit()
-    conn.close()
+    _execute_with_retry(_update)
 
 
 def get_scan_state(target_id):
@@ -206,42 +234,53 @@ def get_scan_state(target_id):
 # Findings Management
 # ----------------------------
 def save_finding(finding):
-    conn = get_connection()
-    cursor = conn.cursor()
+    def _save():
+        conn = get_connection()
+        try:
+            cursor = conn.cursor()
+            cve_value = finding.get("cve", [])
+            if isinstance(cve_value, str):
+                cve_text = cve_value
+            elif isinstance(cve_value, (list, tuple, set)):
+                cve_text = ",".join(str(item) for item in cve_value if item)
+            else:
+                cve_text = str(cve_value)
 
-    cursor.execute("""
-        INSERT INTO findings (
-            target,
-            port,
-            service,
-            tool,
-            severity,
-            issue,
-            cve,
-            cvss_score,
-            description,
-            recommendation,
-            scan_id,
-            timestamp
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        finding["target"],
-        finding.get("port", ""),
-        finding.get("service", ""),
-        finding.get("tool", ""),
-        finding.get("severity", ""),
-        finding.get("issue", ""),
-        ",".join(finding.get("cve", [])),
-        finding.get("cvss_score", ""),
-        finding.get("description", ""),
-        finding.get("recommendation", ""),
-        finding.get("scan_id"),
-        finding.get("timestamp", datetime.now().isoformat())
-    ))
+            cursor.execute("""
+                INSERT INTO findings (
+                    target,
+                    port,
+                    service,
+                    tool,
+                    severity,
+                    issue,
+                    cve,
+                    cvss_score,
+                    description,
+                    recommendation,
+                    scan_id,
+                    timestamp
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                finding["target"],
+                finding.get("port", ""),
+                finding.get("service", ""),
+                finding.get("tool", ""),
+                finding.get("severity", ""),
+                finding.get("issue", ""),
+                cve_text,
+                finding.get("cvss_score", ""),
+                finding.get("description", ""),
+                finding.get("recommendation", ""),
+                finding.get("scan_id"),
+                finding.get("timestamp", datetime.now().isoformat())
+            ))
+            conn.commit()
+        finally:
+            conn.close()
 
-    conn.commit()
-    conn.close()
+    _execute_with_retry(_save)
 
 
 def get_findings(scan_id):

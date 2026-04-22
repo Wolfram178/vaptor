@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "vaptor"
-version = "0.1.0"
+version = "0.1.1"
 description = "CLI-based automated VAPT pipeline with Nmap, testssl, Nessus, correlation and reporting"
 authors = [
     {name = "Wolfram178"}
@@ -13,16 +13,27 @@ readme = "README.md"
 requires-python = ">=3.9"
 
 dependencies = [
-    "requests",
-    "pandas",
-    "openpyxl",
-    "colorama",
-    "cryptography",
-    "pillow"
+    "requests>=2.31",
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "colorama>=0.4.6",
+    "cryptography>=42.0",
+    "pillow>=10.0"
 ]
-
-[tool.setuptools]
-packages = ["core", "db", "scanners", "parsers", "output", "utils", "config", "correlator"]
 
 [project.scripts]
 vaptor = "vaptor.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "vaptor*",
+    "core*",
+    "db*",
+    "scanners*",
+    "parsers*",
+    "output*",
+    "utils*",
+    "config*",
+    "correlator*"
+]

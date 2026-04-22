@@ -1,14 +1,30 @@
-from collections import defaultdict
 from utils.vuln_categorizer import categorize_vulnerability
+
+
+SEVERITY_RANK = {
+    "critical": 4,
+    "high": 3,
+    "medium": 2,
+    "low": 1,
+    "info": 0,
+    "": -1,
+}
+
+
+def _severity_value(value):
+    normalized = str(value).lower()
+    if normalized.isdigit():
+        return int(normalized)
+    return SEVERITY_RANK.get(normalized, -1)
 
 
 def correlate_findings(findings):
     correlated = {}
 
     for f in findings:
-        target = f.get("target")
-        issue = f.get("issue", "")
-        desc = f.get("description", "")
+        target = f.get("target") or ""
+        issue = f.get("issue") or ""
+        desc = f.get("description") or ""
 
         category = categorize_vulnerability(issue, desc)
 
@@ -38,25 +54,28 @@ def correlate_findings(findings):
         cve = f.get("cve", "")
         if isinstance(cve, str):
             if cve:
-                entry["cve"].update(cve.split(","))
+                entry["cve"].update(item.strip() for item in cve.split(",") if item.strip())
         elif isinstance(cve, list):
-            entry["cve"].update(cve)
+            entry["cve"].update(item.strip() for item in cve if item)
 
         # merge descriptions
         entry["description"].add(desc)
+        if _severity_value(f.get("severity", "")) > _severity_value(entry["severity"]):
+            entry["severity"] = f.get("severity", "")
 
-    # convert sets → clean output
+    # convert sets to clean output
     results = []
 
-    for entry in correlated.values():
+    for key in sorted(correlated.keys(), key=lambda item: (item[0], item[1])):
+        entry = correlated[key]
         results.append({
             "target": entry["target"],
             "category": entry["category"],
-            "tools": ", ".join(filter(None, entry["tools"])),
-            "issue": " | ".join(filter(None, entry["issues"])),
-            "cve": ", ".join(filter(None, entry["cve"])),
+            "tools": ", ".join(sorted(filter(None, entry["tools"]))),
+            "issue": " | ".join(sorted(filter(None, entry["issues"]))),
+            "cve": ", ".join(sorted(filter(None, entry["cve"]))),
             "severity": entry["severity"],
-            "description": " | ".join(filter(None, entry["description"])),
+            "description": " | ".join(sorted(filter(None, entry["description"]))),
             "recommendation": entry["recommendation"]
         })
 

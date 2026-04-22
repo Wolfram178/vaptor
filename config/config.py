@@ -1,5 +1,6 @@
 import json
 import os
+
 from cryptography.fernet import Fernet
 
 CONFIG_FILE = "config/nessus_config.json"
@@ -41,7 +42,7 @@ def load_config():
 
     cipher = get_cipher()
 
-    with open(CONFIG_FILE, "r") as f:
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     try:
@@ -61,13 +62,12 @@ def save_config(config):
     cipher = get_cipher()
 
     encrypted_config = config.copy()
-
     encrypted_config["access_key"] = cipher.encrypt(config["access_key"].encode()).decode()
     encrypted_config["secret_key"] = cipher.encrypt(config["secret_key"].encode()).decode()
 
     os.makedirs("config", exist_ok=True)
 
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(encrypted_config, f, indent=4)
 
 
@@ -86,11 +86,11 @@ def setup_config():
         "url": url,
         "access_key": access_key,
         "secret_key": secret_key,
-        "template_uuid": template_uuid
+        "template_uuid": template_uuid,
     }
 
     save_config(config)
 
-    print("[✓] Config saved securely (encrypted)")
+    print("[OK] Config saved securely (encrypted)")
 
     return config

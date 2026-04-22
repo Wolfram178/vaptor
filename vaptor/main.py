@@ -2,53 +2,37 @@
 
 import argparse
 import os
-
-from db.db_manager import (
-    init_db,
-    create_scan,
-    add_target,
-    complete_scan,
-    get_findings
-)
-
-from core.orchestrator import (
-    run_full_pipeline,  
-    run_nessus_pipeline_all
-)
-
-from output.matrix_builder import build_matrix
-from output.excel_writer import export_report
-from output.json_writer import write_json
-
-from correlator.engine import correlate_findings
-
-from config.config import load_config, setup_config
-
-from utils.colors import success, info
-
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ----------------------------
-# Load Targets from File
-# ----------------------------
-def load_targets(file_path):
-    if not os.path.exists(file_path):
-        print(f"[ERROR] Input file not found: {file_path}")
-        exit(1)
-
-    with open(file_path, "r") as f:
-        targets = [line.strip() for line in f if line.strip()]
-
-    return targets
+from config.config import load_config, setup_config
+from core.input_handler import load_targets
+from core.orchestrator import run_full_pipeline, run_nessus_pipeline_all
+from correlator.engine import correlate_findings
+from db.db_manager import add_target, complete_scan, create_scan, get_findings, init_db
+from output.excel_writer import export_report
+from output.json_writer import write_json
+from output.matrix_builder import build_matrix
+from utils.colors import info, success
 
 
 # ----------------------------
-# Convert DB rows → dict
+# Convert DB rows -> dict
 # ----------------------------
 def rows_to_dicts(rows):
     columns = [
-        "id","target","port","service","tool","severity","issue",
-        "cve","cvss_score","description","recommendation","scan_id","timestamp"
+        "id",
+        "target",
+        "port",
+        "service",
+        "tool",
+        "severity",
+        "issue",
+        "cve",
+        "cvss_score",
+        "description",
+        "recommendation",
+        "scan_id",
+        "timestamp",
     ]
     return [dict(zip(columns, row)) for row in rows]
 
@@ -64,19 +48,8 @@ def main():
     parser.add_argument("--json", default="report.json", help="JSON output file")
     parser.add_argument("--resume", action="store_true", help="Resume previous scan")
     parser.add_argument("--mode", choices=["raw", "normalized"], default="raw", help="Vulnerability processing mode")
-
-    parser.add_argument(
-        "--threads",
-        type=int,
-        default=5,
-        help="Number of parallel threads"
-    )
-
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="Vaptor 0.1.0"
-    )
+    parser.add_argument("--threads", type=int, default=5, help="Number of parallel threads")
+    parser.add_argument("--version", action="version", version="Vaptor 0.1.1")
 
     args = parser.parse_args()
 
@@ -101,12 +74,6 @@ def main():
         config = setup_config()
 
     # ----------------------------
-    # Create Scan
-    # ----------------------------
-    scan_id = create_scan()
-    print(f"[+] Created Scan ID: {scan_id}")
-
-    # ----------------------------
     # Load Targets
     # ----------------------------
     targets = load_targets(args.input)
@@ -116,6 +83,12 @@ def main():
         return
 
     print(f"[+] Loaded {len(targets)} target(s)\n")
+
+    # ----------------------------
+    # Create Scan
+    # ----------------------------
+    scan_id = create_scan()
+    print(f"[+] Created Scan ID: {scan_id}")
 
     # ----------------------------
     # Ensure runs directory exists
@@ -132,17 +105,16 @@ def main():
         run_full_pipeline(target_id, target, scan_id)
         return target
 
-
     with ThreadPoolExecutor(max_workers=args.threads) as executor:
         futures = [executor.submit(process_target, target) for target in targets]
 
         for future in as_completed(futures):
             try:
                 completed_target = future.result()
-                print(f"[✓] Completed: {completed_target}")
+                print(f"[OK] Completed: {completed_target}")
             except Exception as e:
-                print(f"[ERROR] {e}") 
-   
+                print(f"[ERROR] {e}")
+
     # ----------------------------
     # Run Nessus (ALL targets)
     # ----------------------------
@@ -153,7 +125,7 @@ def main():
     # ----------------------------
     complete_scan(scan_id)
 
-    print(success("\n[✓] Scan Completed Successfully"))
+    print(success("\n[OK] Scan Completed Successfully"))
 
     # ----------------------------
     # Generate Reports
@@ -180,13 +152,13 @@ def main():
     matrix = build_matrix(correlated, mode=args.mode)
     export_report(matrix, correlated, args.output)
 
-    print(f"[✓] Excel report generated: {args.output}")
+    print(f"[OK] Excel report generated: {args.output}")
 
     # ----------------------------
     # JSON Output
     # ----------------------------
     write_json(correlated, args.json)
-    print(f"[✓] JSON report generated: {args.json}")
+    print(f"[OK] JSON report generated: {args.json}")
 
 
 # ----------------------------

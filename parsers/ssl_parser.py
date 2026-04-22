@@ -6,9 +6,15 @@ def parse_testssl(json_file, target, scan_id):
     with open(json_file, "r") as f:
         data = json.load(f)
 
-    for entry in data:
+    entries = data if isinstance(data, list) else data.get("results", data.get("entries", []))
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+
         severity = entry.get("severity", "").lower()
         finding = entry.get("finding", "").lower()
+        issue = entry.get("id") or entry.get("finding") or "SSL Issue"
 
         # Filter only vulnerabilities
         if (
@@ -21,7 +27,7 @@ def parse_testssl(json_file, target, scan_id):
                 "service": "ssl",
                 "tool": "testssl",
                 "severity": severity,
-                "issue": entry.get("id", "SSL Issue"),
+                "issue": issue,
                 "cve": [],
                 "cvss_score": "",
                 "description": entry.get("finding", ""),

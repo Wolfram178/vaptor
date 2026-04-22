@@ -1,5 +1,8 @@
+import os
 import subprocess
+
 from utils.logger import log_status
+from core.normalizer import safe_filename
 
 def run_testssl(target, output_file):
     try:
@@ -15,7 +18,8 @@ def run_testssl(target, output_file):
 def run_ssl_stage(target, open_ports):
     log_status(target, "ssl", "running")
 
-    output_base = f"runs/testssl_{target}.json"
+    os.makedirs("runs", exist_ok=True)
+    output_base = f"runs/testssl_{safe_filename(target)}.json"
 
     # Step 1: Try direct
     if run_testssl(target, output_base):

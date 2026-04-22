@@ -1,22 +1,12 @@
 import os
 
-from scanners.nmap import run_nmap
-from scanners.ssl import run_ssl_stage
+from db.db_manager import get_targets, save_finding, update_state
 
-from parsers.nmap_parser import parse_nmap
-from parsers.ssl_parser import parse_testssl
+from utils.colors import info, success, warning, severity_color
 
-from db.db_manager import update_state, save_finding
-
-from utils.poc_generator import generate_nmap_poc, generate_ssl_poc
-
-from scanners.nessus import NessusScanner
-from parsers.nessus_parser import parse_nessus
-from db.db_manager import save_finding
-
-from utils.colors import success, info, warning, error, severity_color
-
+from core.normalizer import safe_filename
 from core.smart_scan import decide_scans
+
 
 # ----------------------------
 # CLI Output Helpers
@@ -27,7 +17,7 @@ def print_nmap_summary(findings):
         return
 
     print(info("\n[+] Open Ports:"))
-    
+
     for f in findings:
         print(severity_color(f" - {f['port']} ({f['service']})", "low"))
 
@@ -37,44 +27,67 @@ def print_ssl_findings(findings):
         print("\n[+] No SSL vulnerabilities found")
         return
 
-    print(warning("\n[!] SSL Vulnerabilities:"))    
+    print(warning("\n[!] SSL Vulnerabilities:"))
 
     for f in findings:
         severity = f.get("severity", "")
         issue = f.get("issue", "")
+        print(severity_color(f" - {issue}", severity))
 
-        colored_issue = severity_color(f" - {issue}", severity)
 
-        print(colored_issue)
-
+# ----------------------------
+# Nessus Pipeline (ALL targets)
+# ----------------------------
 def run_nessus_pipeline_all(targets, scan_id, config):
+    from parsers.nessus_parser import parse_nessus
+    from scanners.nessus import NessusScanner
+
     print("\n[+] Starting Nessus Scan (All Targets)")
 
-    scanner = NessusScanner(config)
+    target_rows = get_targets(scan_id)
 
-    nessus_scan_id = scanner.create_scan(targets)
+    for target_id, _target in target_rows:
+        update_state(target_id, "nessus", "running")
 
-    scanner.launch_scan(nessus_scan_id)
-    scanner.wait_for_scan(nessus_scan_id)
+    try:
+        scanner = NessusScanner(config)
 
-    output_file = scanner.export_scan(nessus_scan_id)
+        nessus_scan_id = scanner.create_scan(targets)
+        scanner.launch_scan(nessus_scan_id)
+        scanner.wait_for_scan(nessus_scan_id)
 
-    findings = parse_nessus(output_file, scan_id)
+        output_file = scanner.export_scan(nessus_scan_id)
+        findings = parse_nessus(output_file, scan_id)
 
-    for f in findings:
-        save_finding(f)
+        for f in findings:
+            save_finding(f)
 
-    print("[✓] Nessus Scan Completed & Stored")
+        for target_id, _target in target_rows:
+            update_state(target_id, "nessus", "completed")
+
+        print(success("[OK] Nessus Scan Completed & Stored"))
+        return True
+    except Exception as e:
+        for target_id, _target in target_rows:
+            update_state(target_id, "nessus", "failed")
+        print(warning(f"[WARN] Nessus scan failed: {e}"))
+        return False
+
 
 # ----------------------------
 # Nmap Stage
 # ----------------------------
 def run_nmap_stage(target_id, target, scan_id):
-    output_file = f"runs/nmap_{target}.xml"
+    from parsers.nmap_parser import parse_nmap
+    from scanners.nmap import run_nmap
 
-    success = run_nmap(target, output_file)
+    output_file = f"runs/nmap_{safe_filename(target)}.xml"
 
-    if not success:
+    print(info(f"[+] Running Nmap on {target}..."))
+
+    success_flag = run_nmap(target, output_file)
+
+    if not success_flag:
         update_state(target_id, "nmap", "failed")
         return []
 
@@ -82,16 +95,19 @@ def run_nmap_stage(target_id, target, scan_id):
 
     findings, open_ports = parse_nmap(output_file, target, scan_id)
 
-    # Save findings to DB
     for f in findings:
         save_finding(f)
 
-    # CLI Output
     print_nmap_summary(findings)
 
-    # Generate PoC only if useful findings exist
+    # Lazy PoC
     if findings:
-        generate_nmap_poc(target)
+        try:
+            from utils.poc_generator import generate_nmap_poc
+
+            generate_nmap_poc(target)
+        except Exception as e:
+            print(warning(f"[WARN] Nmap PoC skipped: {e}"))
 
     return open_ports
 
@@ -100,6 +116,11 @@ def run_nmap_stage(target_id, target, scan_id):
 # SSL Stage
 # ----------------------------
 def run_ssl_pipeline(target_id, target, scan_id, open_ports):
+    from parsers.ssl_parser import parse_testssl
+    from scanners.ssl import run_ssl_stage
+
+    print(info(f"[+] Running SSL scan on {target}..."))
+
     output_file = run_ssl_stage(target, open_ports)
 
     if not output_file:
@@ -110,25 +131,27 @@ def run_ssl_pipeline(target_id, target, scan_id, open_ports):
 
     findings = parse_testssl(output_file, target, scan_id)
 
-    # Save findings to DB
     for f in findings:
         save_finding(f)
 
-    # CLI Output FIRST
     print_ssl_findings(findings)
 
-    # Generate PoC only if vulnerabilities exist
+    # Lazy PoC
     if findings:
-        generate_ssl_poc(target)
+        try:
+            from utils.poc_generator import generate_ssl_poc
+
+            generate_ssl_poc(target)
+        except Exception as e:
+            print(warning(f"[WARN] SSL PoC skipped: {e}"))
 
 
 # ----------------------------
 # Full Pipeline
 # ----------------------------
 def run_full_pipeline(target_id, target, scan_id):
-    print(f"\n[+] Processing Target: {target}")
+    print(info(f"\n[+] Processing Target: {target}"))
 
-    # Ensure runs directory exists
     os.makedirs("runs", exist_ok=True)
 
     # Step 1: Nmap
@@ -139,18 +162,18 @@ def run_full_pipeline(target_id, target, scan_id):
 
     print(info(f"[+] Smart Scan Decisions for {target}: {actions}"))
 
-    # ALWAYS run SSL
+    # Step 3: ALWAYS run SSL
     run_ssl_pipeline(target_id, target, scan_id, open_ports)
 
-    # Conditional Scans
-    if actions["http"]:
+    # Step 4: Conditional Scans (future modules)
+    if actions.get("http"):
         print(info(f"[+] Running HTTP checks on {target}"))
 
-    if actions["ftp"]:
+    if actions.get("ftp"):
         print(info(f"[+] Running FTP checks on {target}"))
 
-    if actions["ssh"]:
+    if actions.get("ssh"):
         print(info(f"[+] Running SSH checks on {target}"))
 
-    if actions["smb"]:
+    if actions.get("smb"):
         print(info(f"[+] Running SMB checks on {target}"))
