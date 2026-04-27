@@ -1,18 +1,13 @@
 import os
-import subprocess
 
 from utils.logger import log_status
 from core.normalizer import safe_filename
+from utils.terminal_capture import run_with_script
 
 def run_testssl(target, output_file):
-    try:
-        subprocess.run(
-            ["testssl.sh", "--warning", "off", "--jsonfile", output_file, target],
-            check=True
-        )
-        return True
-    except subprocess.CalledProcessError:
-        return False
+    command = ["testssl.sh", "--warning", "off", "--jsonfile", output_file, target]
+    terminal_output = os.path.splitext(output_file)[0] + ".txt"
+    return run_with_script(command, terminal_output)
 
 
 def run_ssl_stage(target, open_ports):

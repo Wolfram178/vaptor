@@ -1,11 +1,10 @@
 import os
-
-from db.db_manager import get_targets, save_finding, update_state
-
-from utils.colors import info, success, warning, severity_color
+from time import perf_counter
 
 from core.normalizer import safe_filename
 from core.smart_scan import decide_scans
+from db.db_manager import get_targets, save_finding, update_state
+from utils.colors import info, success, warning, severity_color
 
 
 # ----------------------------
@@ -13,26 +12,27 @@ from core.smart_scan import decide_scans
 # ----------------------------
 def print_nmap_summary(findings):
     if not findings:
-        print("\n[+] No open ports found")
+        print(info("[NMAP] No open ports found"))
         return
 
-    print(info("\n[+] Open Ports:"))
-
-    for f in findings:
-        print(severity_color(f" - {f['port']} ({f['service']})", "low"))
+    preview = ", ".join(f"{f['port']}({f['service']})" for f in findings[:5])
+    suffix = " ..." if len(findings) > 5 else ""
+    print(success(f"[NMAP] Open ports: {preview}{suffix}"))
 
 
 def print_ssl_findings(findings):
     if not findings:
-        print("\n[+] No SSL vulnerabilities found")
+        print(info("[SSL] No SSL vulnerabilities found"))
         return
 
-    print(warning("\n[!] SSL Vulnerabilities:"))
+    issues = []
+    for finding in findings[:5]:
+        severity = finding.get("severity", "")
+        issue = finding.get("issue", "")
+        issues.append(severity_color(f"{issue}", severity))
 
-    for f in findings:
-        severity = f.get("severity", "")
-        issue = f.get("issue", "")
-        print(severity_color(f" - {issue}", severity))
+    suffix = " ..." if len(findings) > 5 else ""
+    print(warning(f"[SSL] Findings: {', '.join(issues)}{suffix}"))
 
 
 # ----------------------------
@@ -42,7 +42,7 @@ def run_nessus_pipeline_all(targets, scan_id, config):
     from parsers.nessus_parser import parse_nessus
     from scanners.nessus import NessusScanner
 
-    print("\n[+] Starting Nessus Scan (All Targets)")
+    print(info("[NESSUS] Running..."))
 
     target_rows = get_targets(scan_id)
 
@@ -59,13 +59,13 @@ def run_nessus_pipeline_all(targets, scan_id, config):
         output_file = scanner.export_scan(nessus_scan_id)
         findings = parse_nessus(output_file, scan_id)
 
-        for f in findings:
-            save_finding(f)
+        for finding in findings:
+            save_finding(finding)
 
         for target_id, _target in target_rows:
             update_state(target_id, "nessus", "completed")
 
-        print(success("[OK] Nessus Scan Completed & Stored"))
+        print(success("[NESSUS] Completed"))
         return True
     except Exception as e:
         for target_id, _target in target_rows:
@@ -83,9 +83,10 @@ def run_nmap_stage(target_id, target, scan_id):
 
     output_file = f"runs/nmap_{safe_filename(target)}.xml"
 
-    print(info(f"[+] Running Nmap on {target}..."))
+    print(info(f"[NMAP] Running on {target}..."))
 
     success_flag = run_nmap(target, output_file)
+    terminal_output = f"runs/nmap_{safe_filename(target)}.txt"
 
     if not success_flag:
         update_state(target_id, "nmap", "failed")
@@ -95,17 +96,16 @@ def run_nmap_stage(target_id, target, scan_id):
 
     findings, open_ports = parse_nmap(output_file, target, scan_id)
 
-    for f in findings:
-        save_finding(f)
+    for finding in findings:
+        save_finding(finding)
 
     print_nmap_summary(findings)
 
-    # Lazy PoC
     if findings:
         try:
             from utils.poc_generator import generate_nmap_poc
 
-            generate_nmap_poc(target)
+            generate_nmap_poc(target, terminal_output)
         except Exception as e:
             print(warning(f"[WARN] Nmap PoC skipped: {e}"))
 
@@ -119,9 +119,10 @@ def run_ssl_pipeline(target_id, target, scan_id, open_ports):
     from parsers.ssl_parser import parse_testssl
     from scanners.ssl import run_ssl_stage
 
-    print(info(f"[+] Running SSL scan on {target}..."))
+    print(info(f"[SSL] Running on {target}..."))
 
     output_file = run_ssl_stage(target, open_ports)
+    terminal_output = f"runs/testssl_{safe_filename(target)}.txt"
 
     if not output_file:
         update_state(target_id, "ssl", "failed")
@@ -131,17 +132,16 @@ def run_ssl_pipeline(target_id, target, scan_id, open_ports):
 
     findings = parse_testssl(output_file, target, scan_id)
 
-    for f in findings:
-        save_finding(f)
+    for finding in findings:
+        save_finding(finding)
 
     print_ssl_findings(findings)
 
-    # Lazy PoC
     if findings:
         try:
             from utils.poc_generator import generate_ssl_poc
 
-            generate_ssl_poc(target)
+            generate_ssl_poc(target, terminal_output)
         except Exception as e:
             print(warning(f"[WARN] SSL PoC skipped: {e}"))
 
@@ -150,30 +150,29 @@ def run_ssl_pipeline(target_id, target, scan_id, open_ports):
 # Full Pipeline
 # ----------------------------
 def run_full_pipeline(target_id, target, scan_id):
-    print(info(f"\n[+] Processing Target: {target}"))
+    print(info(f"\n[TARGET] {target}"))
 
     os.makedirs("runs", exist_ok=True)
+    target_started = perf_counter()
 
-    # Step 1: Nmap
     open_ports = run_nmap_stage(target_id, target, scan_id)
-
-    # Step 2: Smart Scan Decision
     actions = decide_scans(open_ports)
 
-    print(info(f"[+] Smart Scan Decisions for {target}: {actions}"))
+    print(info(f"[SCAN] Decisions: {actions}"))
 
-    # Step 3: ALWAYS run SSL
     run_ssl_pipeline(target_id, target, scan_id, open_ports)
 
-    # Step 4: Conditional Scans (future modules)
     if actions.get("http"):
-        print(info(f"[+] Running HTTP checks on {target}"))
+        print(info(f"[HTTP] Checks on {target}"))
 
     if actions.get("ftp"):
-        print(info(f"[+] Running FTP checks on {target}"))
+        print(info(f"[FTP] Checks on {target}"))
 
     if actions.get("ssh"):
-        print(info(f"[+] Running SSH checks on {target}"))
+        print(info(f"[SSH] Checks on {target}"))
 
     if actions.get("smb"):
-        print(info(f"[+] Running SMB checks on {target}"))
+        print(info(f"[SMB] Checks on {target}"))
+
+    elapsed = perf_counter() - target_started
+    return elapsed

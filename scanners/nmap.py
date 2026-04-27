@@ -3,6 +3,7 @@ import platform
 import subprocess
 
 from utils.logger import log_status
+from utils.terminal_capture import run_with_script
 
 
 def is_host_alive(target):
@@ -23,41 +24,32 @@ def run_nmap(target, output_file):
     try:
         log_status(target, "nmap", "running")
 
-        # Check if host is alive
         alive = is_host_alive(target)
+        cmd = [
+            "nmap",
+            "-p-",
+            "--open",
+            "-sV",
+            "-sC",
+            "-T4",
+        ]
 
-        if alive:
-            cmd = [
-                "nmap",
-                "-p-",
-                "--open",
-                "-sV",
-                "-sC",
-                "-T4",
-                "-oX",
-                output_file,
-                target
-            ]
-        else:
-            cmd = [
-                "nmap",
-                "-Pn",
-                "-p-",
-                "--open",
-                "-sV",
-                "-sC",
-                "-T4",
-                "-oX",
-                output_file,
-                target
-            ]
+        if not alive:
+            cmd.append("-Pn")
+
+        cmd.extend(["-oX", output_file, target])
 
         os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
-        subprocess.run(cmd, check=True)
+        terminal_output = os.path.splitext(output_file)[0] + ".txt"
+        success = run_with_script(cmd, terminal_output)
+
+        if not success:
+            log_status(target, "nmap", "failed")
+            return False
 
         log_status(target, "nmap", "completed")
         return True
 
-    except subprocess.CalledProcessError:
+    except Exception:
         log_status(target, "nmap", "failed")
         return False

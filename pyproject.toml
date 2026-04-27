@@ -18,7 +18,8 @@ dependencies = [
     "openpyxl>=3.1",
     "colorama>=0.4.6",
     "cryptography>=42.0",
-    "pillow>=10.0"
+    "pillow>=10.0",
+    "mss>=9.0"
 ]
 
 [project.scripts]

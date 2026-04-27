@@ -14,6 +14,24 @@ Vaptor is an automated VAPT pipeline tool that integrates Nmap, testssl, and Nes
 
 ## Installation
 
+### One-command local install
+
+Clone the repo and install Vaptor from the repository root:
+
+```bash
+git clone https://github.com/Wolfram178/vaptor.git
+cd vaptor
+python scripts/install.py
+```
+
+After that, you can run Vaptor from anywhere in the same environment:
+
+```bash
+vaptor -i targets.txt
+```
+
+### Manual install
+
 ```bash
 git clone https://github.com/Wolfram178/vaptor.git
 cd vaptor
@@ -43,6 +61,8 @@ sudo apt install -y nmap python3-pipx
 ```
 
 `testssl.sh` and Nessus are external tools and still need to be present on the Kali system or reachable over the network before SSL and Nessus stages can run.
+
+PoC screenshots are generated from the captured scan output using a GUI window snapshot. The Python dependency `mss` is installed automatically, but you still need a graphical session available on Linux for the screenshot step to work. If no GUI is available, Vaptor falls back to the text-rendered PoC image.
 
 For a one-shot setup, run:
 
