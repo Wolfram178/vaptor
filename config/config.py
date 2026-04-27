@@ -5,6 +5,16 @@ from cryptography.fernet import Fernet
 
 CONFIG_FILE = "config/nessus_config.json"
 KEY_FILE = "config/key.key"
+DEFAULT_REQUEST_TIMEOUT = 60
+DEFAULT_SCAN_TIMEOUT = 7200
+DEFAULT_EXPORT_TIMEOUT = 600
+
+
+def apply_defaults(config):
+    config.setdefault("request_timeout", DEFAULT_REQUEST_TIMEOUT)
+    config.setdefault("scan_timeout", DEFAULT_SCAN_TIMEOUT)
+    config.setdefault("export_timeout", DEFAULT_EXPORT_TIMEOUT)
+    return config
 
 
 # ----------------------------
@@ -52,7 +62,7 @@ def load_config():
         print("[ERROR] Failed to decrypt Nessus keys")
         return None
 
-    return data
+    return apply_defaults(data)
 
 
 # ----------------------------
@@ -61,7 +71,7 @@ def load_config():
 def save_config(config):
     cipher = get_cipher()
 
-    encrypted_config = config.copy()
+    encrypted_config = apply_defaults(config.copy())
     encrypted_config["access_key"] = cipher.encrypt(config["access_key"].encode()).decode()
     encrypted_config["secret_key"] = cipher.encrypt(config["secret_key"].encode()).decode()
 
@@ -81,12 +91,21 @@ def setup_config():
     access_key = input("Access Key: ").strip()
     secret_key = input("Secret Key: ").strip()
     template_uuid = input("Scan Template UUID: ").strip()
+    request_timeout = input(f"Request Timeout in seconds [{DEFAULT_REQUEST_TIMEOUT}]: ").strip()
+    scan_timeout = input(f"Scan Timeout in seconds [{DEFAULT_SCAN_TIMEOUT}]: ").strip()
+    export_timeout = input(f"Export Timeout in seconds [{DEFAULT_EXPORT_TIMEOUT}]: ").strip()
+
+    def parse_timeout(value, default):
+        return int(value) if value else default
 
     config = {
         "url": url,
         "access_key": access_key,
         "secret_key": secret_key,
         "template_uuid": template_uuid,
+        "request_timeout": parse_timeout(request_timeout, DEFAULT_REQUEST_TIMEOUT),
+        "scan_timeout": parse_timeout(scan_timeout, DEFAULT_SCAN_TIMEOUT),
+        "export_timeout": parse_timeout(export_timeout, DEFAULT_EXPORT_TIMEOUT),
     }
 
     save_config(config)
