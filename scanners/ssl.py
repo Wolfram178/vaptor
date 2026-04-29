@@ -5,7 +5,7 @@ from core.normalizer import safe_filename
 from utils.terminal_capture import run_with_script
 
 def run_testssl(target, output_file):
-    command = ["testssl.sh", "--warning", "off", "--jsonfile", output_file, target]
+    command = ["testssl", "--warning", "off", "--jsonfile", output_file, target]
     terminal_output = os.path.splitext(output_file)[0] + ".txt"
     return run_with_script(command, terminal_output)
 
